@@ -1,0 +1,114 @@
+{
+  "queries": [
+    {
+      "query": "What are the best skincare routines for teenagers?",
+      "metadata": {
+        "gender": "any",
+        "age_group": "teenager",
+        "age_range": "13-19",
+        "keywords": "skincare, routine, acne, teenage",
+        "summary": "Looking for age-appropriate skincare advice for teenagers dealing with hormonal changes",
+        "location": "general"
+      }
+    },
+    {
+      "query": "How to maintain healthy hair for women in their 30s?",
+      "metadata": {
+        "gender": "female",
+        "age_group": "young_adult",
+        "age_range": "30-39",
+        "keywords": "hair care, women, healthy hair, maintenance",
+        "summary": "Hair care tips and maintenance for women entering their thirties",
+        "location": "general"
+      }
+    },
+    {
+      "query": "Best anti-aging products for men over 40",
+      "metadata": {
+        "gender": "male",
+        "age_group": "middle_aged",
+        "age_range": "40-50",
+        "keywords": "anti-aging, men, skincare, wrinkles, mature skin",
+        "summary": "Anti-aging skincare recommendations specifically for middle-aged men",
+        "location": "general"
+      }
+    },
+    {
+      "query": "Natural remedies for dry skin in winter",
+      "metadata": {
+        "gender": "any",
+        "age_group": "any",
+        "age_range": "any",
+        "keywords": "natural remedies, dry skin, winter, moisturizing",
+        "summary": "Natural and home-based solutions for winter dry skin issues",
+        "location": "cold climate"
+      }
+    },
+    {
+      "query": "Makeup tips for older women with sensitive skin",
+      "metadata": {
+        "gender": "female",
+        "age_group": "senior",
+        "age_range": "60+",
+        "keywords": "makeup, sensitive skin, older women, gentle products",
+        "summary": "Makeup application and product recommendations for mature, sensitive skin",
+        "location": "general"
+      }
+    },
+    {
+      "query": "How to deal with hair loss in young adults?",
+      "metadata": {
+        "gender": "any",
+        "age_group": "young_adult",
+        "age_range": "20-35",
+        "keywords": "hair loss, young adults, treatment, prevention",
+        "summary": "Addressing premature hair loss concerns in young adults",
+        "location": "general"
+      }
+    },
+    {
+      "query": "Sun protection for children's delicate skin",
+      "metadata": {
+        "gender": "any",
+        "age_group": "child",
+        "age_range": "5-12",
+        "keywords": "sun protection, children, delicate skin, sunscreen",
+        "summary": "Safe and effective sun protection methods for children's sensitive skin",
+        "location": "sunny climate"
+      }
+    },
+    {
+      "query": "Professional skincare routine for working women",
+      "metadata": {
+        "gender": "female",
+        "age_group": "young_adult",
+        "age_range": "25-40",
+        "keywords": "professional, working women, skincare routine, busy schedule",
+        "summary": "Efficient skincare routines for busy professional women",
+        "location": "urban"
+      }
+    },
+    {
+      "query": "How to choose the right foundation for oily skin?",
+      "metadata": {
+        "gender": "any",
+        "age_group": "any",
+        "age_range": "16-40",
+        "keywords": "foundation, oily skin, makeup, coverage",
+        "summary": "Foundation selection guide for people with oily skin types",
+        "location": "general"
+      }
+    },
+    {
+      "query": "Gentle skincare for pregnant women",
+      "metadata": {
+        "gender": "female",
+        "age_group": "young_adult",
+        "age_range": "25-40",
+        "keywords": "pregnancy, gentle skincare, safe products, hormonal changes",
+        "summary": "Safe and gentle skincare options during pregnancy",
+        "location": "general"
+      }
+    }
+  ]
+}
