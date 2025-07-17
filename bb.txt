@@ -1,0 +1,1033 @@
+# config.py
+import os
+from dataclasses import dataclass
+
+class Config:
+    # Embedding dim
+    CHUNK_EMBEDDING_DIM = 768
+    METADATA_EMBEDDING_DIM = 512
+
+    # files and floder
+    DATA_FOLDER = "health_docs"
+    QUERY = "query"
+    INDEX_PATH = "index"
+    LLM_CHUNK = "llm_chunk"
+    CLUSTER_FOL = "cluster"
+
+    NUM_METADATA_CLUSTERS = 50
+    TOP_CLUSTER_ASSIGNMENT = 3
+
+    MAX_CHUNK_TOKENS = 5000
+    OVERLAP_TOKENS = 200
+    
+config = Config()
+
+# data process
+import logging
+from typing import List, Dict
+from pathlib import Path
+from docx import Document
+import os
+from docx.table import Table
+import json
+
+logging.basicConfig(
+    filename='log_25_6.log',
+    filemode='w',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+import warnings
+warnings.filterwarnings("ignore")
+
+
+class DocumentProcessor:
+    def __init__(self):
+        self.supported_formats = ['.docx']
+    
+    def extract_text_from_docx(self, file_path: str) -> str:
+        try:
+            doc = Document(file_path)
+            full_text = []
+            # print("Here ?? extract_text_from_docx")
+            # print(f"Doc : {doc.element.body}")
+            for element in doc.element.body:
+                if element.tag.endswith('p'):
+                    para = next((p for p in doc.paragraphs if p._element is element), None)
+                    if para and para.text.strip():
+                        full_text.append(para.text.strip())
+                
+                elif element.tag.endswith('tbl'):
+                    table = next((t for t in doc.tables if t._element is element), None)
+                    if table:
+                        table_text = self.extract_table_text(table)
+                        if table_text:
+                            full_text.append(f"[TABLE]\n{table_text}\n[/TABLE]")
+            
+            return '\n\n'.join(full_text)
+        
+        except Exception as e:
+            logger.error(f"Error processing DOCX file {file_path}: {e}")
+            return ""
+    
+    def extract_table_text(self, table: Table) -> str:
+        table_data = []
+        for row in table.rows:
+            row_data = []
+            for cell in row.cells:
+                cell_text = cell.text.strip().replace('\n', ' ')
+                row_data.append(cell_text)
+            if any(cell for cell in row_data):
+                table_data.append(' | '.join(row_data))
+        
+        return '\n'.join(table_data)
+
+    def extract_query_metadata(self, file_path:str) -> List[Dict[str,str]]:
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            queries = []
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict):
+                        queries.append(item)
+                    else:
+                        queries.append({'query': str(item), 'metadata': {}})
+            elif isinstance(data, dict):
+                if 'queries' in data:
+                    queries = data['queries']
+                else:
+                    queries = [data]
+            
+            return queries
+        except Exception as e:
+            logger.error(f"Error extracting queries from {file_path}: {e}")
+        return []
+
+
+
+def load_documents(data_folder: str) -> List[Dict[str, str]]:
+    # logger.info(f"Loading datas from {data_folder}")
+    
+    processor = DocumentProcessor()
+    documents = []
+    
+    data_path = Path(data_folder)
+    if not data_path.exists():
+        logger.error(f"data folder {data_folder} does not exist")
+        return []
+    
+    count = 0
+    for file_path in data_path.rglob("*.docx"):
+        # if count >= 1 :
+        #     break
+        try:
+            # logger.info(f"Processing {file_path}")
+            text = processor.extract_text_from_docx(str(file_path))
+            
+            if text:
+                documents.append({
+                    'filename': file_path.name,
+                    'filepath': str(file_path),
+                    'content': text,
+                    'file_type': 'docx'
+                })
+                # logger.info(f"Successfully processed {file_path.name}")
+            else:
+                logger.warning(f"No text extracted from {file_path}")
+                
+        except Exception as e:
+            logger.error(f"Error processing {file_path}: {e}")
+        
+        count += 1
+    
+    logger.info(f"Loaded {len(documents)} documents")
+    return documents
+
+
+# def load_queries(query_folder: str) -> List[Dict[str, str]]:
+#     queries = []
+#     if not os.path.exists(query_folder):
+#         return []
+#     json_files = [f for f in os.listdir(query_folder) if f.endswith('.json')]
+
+#     if not json_files:
+#         return []
+
+#     for json_file in json_files:
+#         file_path = os.path.join()
+
+
+
+
+def load_query(query_folder: str) -> List[Dict[str, str]]:
+    # logger.info(f"Loading queries from {query_folder}")
+    
+    processor = DocumentProcessor()
+    queries = []
+    
+    data_path = Path(query_folder)
+   
+    if not data_path.exists():
+        logger.error(f"Query folder {query_folder} does not exist")
+        return []
+    
+    count = 0
+    for file_path in data_path.rglob("*.json"):
+        # if count >= 1 :
+        #     break
+        try:
+            logger.info(f"Processing {file_path}")
+            qry = processor.extract_query_metadata(str(file_path))
+            
+            if qry:
+                queries.extend(qry)
+                # logger.info(f"Successfully processed query file{file_path.name}")
+            else:
+                logger.warning(f"No query extracted from {file_path}")
+                
+        except Exception as e:
+            logger.error(f"Error in processing {file_path}: {e}")
+        
+        count += 1
+    
+    # logger.info(f"Loaded {len(queries)} queries.")
+    return queries
+
+# embedding.py
+import logging
+from typing import List
+import numpy as np
+import requests
+
+logging.basicConfig(
+    filename='log_25_6.log',
+    filemode='w',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+import warnings
+warnings.filterwarnings("ignore")
+
+
+def compute_embeddings(text_list: str,dim: int = 512) -> np.ndarray:
+    # logger.info(f"Computing embeddings for texts...")
+    # print(f"Text : {[text_list]}")
+    payload = {
+            "texts": [text_list],
+            "model": "text-embedding-005",
+            "config": {
+                "task_type": "SEMANTIC_SIMILARITY",
+                "auto_truncate": True,
+                "dimension": dim
+            }
+        }
+        
+    response = requests.post(url="", json=payload, verify=False)
+    # print(response.json().get("embeddings", []))
+    # print("\n\n")
+    if response.status_code == 200:
+        return response.json().get("embeddings", [])
+    raise Exception(f"Embedding error: {response.status_code}")
+
+
+def compute_embeddings_mtd(text_list: str,dim: int = 512) -> np.ndarray:
+    # logger.info(f"Computing embeddings for texts...")
+    # print(f"Text : {[text_list]}")
+    payload = {
+            "texts": [text_list],
+            "model": "text-embedding-005",
+            "config": {
+                "task_type": "RETRIEVAL_QUERY",
+                "auto_truncate": True,
+                "dimension": dim
+            }
+        }
+        
+    response = requests.post(url="", json=payload, verify=False)
+    # print(response.json().get("embeddings", []))
+    # print("\n\n")
+    if response.status_code == 200:
+        return response.json().get("embeddings", [])
+    raise Exception(f"Embedding error: {response.status_code}")
+
+
+
+def normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
+    # logger.info("Normalizing embeddings...")
+    return embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+
+
+# faiss_index.py 
+import logging
+import numpy as np
+import faiss
+import pickle
+from typing import List, Dict, Tuple, Optional
+from collections import defaultdict
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from sklearn.cluster import KMeans
+from config import config
+
+logging.basicConfig(
+    filename='log_25_6.log',
+    filemode='w',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+import warnings
+warnings.filterwarnings("ignore")
+
+class HierarchicalFAISSIndex:
+    def __init__(self, embedding_dim: int = 512,metadata_dim:int = 128):
+        self.embedding_dim = embedding_dim
+        self.metadata_dim = metadata_dim
+
+        
+        self.metadata_clusters = {}           # metadata_cluster_id -> cluster info
+        self.metadata_cluster_centroids = None# centroids of metadata clusters
+        self.metadata_cluster_index = None    # FAISS index for metadata clusters
+        
+        self.content_indices = {}             # metadata_cluster_id -> content FAISS indices
+        self.cluster_metadata = {}            # metadata_cluster_id -> list of chunk metadata
+        self.cluster_content_embeddings = {}  # metadata_cluster_id -> content embeddings
+        self.cluster_texts = {}               # metadata_cluster_id -> chunk texts
+        self.cluster_chunk_ids = {}           # metadata_cluster_id -> chunk IDs
+        self.cluster_assignments = {}         # chunk_idx -> list of assigned metadata_cluster_ids
+
+        self.lock = threading.Lock()
+
+        self.chunk_to_clusters_with_score = {}           # chunk_id -> list of metadata_cluster_ids
+
+    
+    def _build_metadata_clusters(self, metadata_embeddings: List[np.ndarray], 
+                                metadata_list: List[Dict[str, str]], 
+                                num_clusters: int = 50):
+        logger.info("Building metadata-based coarse clusters...")
+        
+        metadata_embeddings = np.array(metadata_embeddings)
+        if len(metadata_embeddings.shape) == 3:
+            metadata_embeddings = metadata_embeddings.squeeze(1)
+        
+        
+        n_samples = len(metadata_embeddings)
+        optimal_clusters = min(num_clusters, max(5, n_samples // 20))
+        
+        logger.info(f"Performing metadata K-means clustering with {optimal_clusters} clusters on {n_samples} samples")
+        
+        kmeans = KMeans(
+            n_clusters=optimal_clusters, 
+            random_state=42, 
+            n_init=min(5,len(metadata_embeddings)), 
+            max_iter=5000,
+            algorithm='lloyd' 
+        )
+        cluster_labels = kmeans.fit_predict(metadata_embeddings)
+        
+        self.metadata_cluster_centroids = kmeans.cluster_centers_
+        self.metadata_cluster_index = faiss.IndexFlatIP(self.metadata_cluster_centroids.shape[1])
+        self.metadata_cluster_index.add(self.metadata_cluster_centroids.astype(np.float32))
+        
+        metadata_cluster_data = defaultdict(lambda: {'indices': [],'metadata': []})
+        for i, label in enumerate(cluster_labels):
+            cluster_id = f"meta_cluster_{label}"
+            metadata_cluster_data[cluster_id]['indices'].append(i)
+            metadata_cluster_data[cluster_id]['metadata'].append(metadata_list[i])
+        
+        self.metadata_clusters = dict(metadata_cluster_data)
+        
+        logger.info(f"Created {len(metadata_cluster_data)} metadata clusters")
+        return metadata_cluster_data
+    
+    def _assign_chunks_to_clusters(self, chunk_list: List[str], 
+                                  content_embeddings: List[np.ndarray],
+                                  metadata_embeddings: List[np.ndarray],
+                                  metadata_list: List[Dict[str, str]],
+                                  chunk_ids: List[str],
+                                  top_k_clusters: int = 1):
+        logger.info(f"Assigning chunks to top-{top_k_clusters} metadata clusters")
+        
+        metadata_embeddings_np = np.array(metadata_embeddings)
+        if len(metadata_embeddings_np.shape) == 3:
+            metadata_embeddings_np = metadata_embeddings_np.squeeze(1)
+        
+        
+        cluster_data = defaultdict(lambda: {
+            'content_embeddings': [], 
+            'texts': [], 
+            'metadata': [],
+            'chunk_ids': [],
+            'chunk_indices': []
+        })
+        
+        # For each chunk, find top-k most similar metadata clusters assign them to it Fuzzy assignment
+        for chunk_idx, (chunk_text, content_emb, metadata_emb, metadata, chunk_id) in enumerate(zip(
+            chunk_list, content_embeddings, metadata_embeddings, metadata_list, chunk_ids
+        )):
+            
+            # Search for most similar metadata clusters
+            scores, indices = self.metadata_cluster_index.search(
+                metadata_embeddings_np[chunk_idx:chunk_idx+1].astype(np.float32),
+                min(top_k_clusters, len(self.metadata_clusters))
+            )
+            
+            # Assign chunk to top-k clusters
+            assigned_clusters = []
+            assigned_clusters_with_scores = []
+            cluster_ids = list(self.metadata_clusters.keys())
+            
+            for rank, (score, cluster_idx) in enumerate(zip(scores[0], indices[0])):
+                if cluster_idx != -1 and cluster_idx < len(cluster_ids):
+                    cluster_id = cluster_ids[cluster_idx]
+                    assigned_clusters.append(cluster_id)
+                    assigned_clusters_with_scores.append((cluster_id,float(score)))
+                    # Adding chunk to this cluster
+                    cluster_data[cluster_id]['content_embeddings'].append(content_emb)
+                    cluster_data[cluster_id]['texts'].append(chunk_text)
+                    cluster_data[cluster_id]['metadata'].append(metadata)
+                    cluster_data[cluster_id]['chunk_ids'].append(chunk_id)
+                    cluster_data[cluster_id]['chunk_indices'].append(chunk_idx)
+            
+            self.cluster_assignments[chunk_idx] = assigned_clusters
+            self.chunk_to_clusters_with_score[chunk_id] = assigned_clusters_with_scores
+            # print(f"Chunk id : {chunk_id} :: {self.chunk_to_clusters_with_score[chunk_id]}")
+            # if chunk_idx % 1000 == 0:
+            #     logger.info(f"Assigned {chunk_idx + 1} chunks to clusters")
+        
+        # logger.info(f"Completed chunk assignment. Clusters with content: {len([k for k, v in cluster_data.items() if v['texts']])}")
+        os.makedirs(config.CLUSTER_FOL, exist_ok=True)
+        logger.info(f"Writing chunk texts in {config.CLUSTER_FOL}")
+
+        for cluster_id, data in cluster_data.items():
+            if data['texts']:
+                file_name = cluster_id.replace('/','_').replace('\\','_').replace(':','_')
+
+                out_file = os.path.join(config.CLUSTER_FOL,f"{file_name}_chunks.text")
+
+                try:
+                    with open(out_file, 'w', encoding='utf-8') as f:
+                        f.write(f"======== METADATA CLUSTER: {cluster_id}=======\n")
+                        f.write(f"Total chunks : {len(data['texts'])}\n")
+                        f.write("-"*100 + "\n\n")
+            
+                        for i in range(len(data['texts'])): 
+                            f.write(f"---------Chunk {i+1}----\n")
+                            f.write(f"Chunk id : {data['chunk_ids'][i]}\n")
+                            f.write(f"Metadata : {data['metadata'][i]}\n")
+                            f.write(f"Text : {data['texts'][i]}\n")
+
+                except Exception as e:
+                    logger.error(f"Error in writing cluster chunk to file")
+
+
+        
+        return cluster_data
+    
+
+
+    def _write_chunk_mapping(self):
+        chunk_mapping_file = os.path.join(config.CLUSTER_FOL, "chunk_to_clusters_mapping.txt")
+        try:
+            with open(chunk_mapping_file,'w',encoding='utf-8') as f:
+                for chunk_id, cluster_list in self.chunk_to_clusters_with_score.items():
+                    f.write(f"Chunk id : {chunk_id}")
+                    f.write(f"Assigned cluster : {cluster_list}")
+                    f.write("-"*50 + "\n")
+        except Exception as e:
+            logger.error(f"Error creating chunk mapping file: {e}")
+
+
+
+
+    def _create_ivf_index(self, content_embs_np : np.ndarray, cluster_size: int):
+        quantizer = faiss.IndexFlatIP(self.embedding_dim)
+
+        if cluster_size <= 10:
+            nlist = 2
+        elif cluster_size <= 50:
+            nlist = max(2,cluster_size//10)
+        elif cluster_size <= 200:
+            nlist = max(4,cluster_size//20)
+        else:
+            nlist = min(max(cluster_size//30,8),64)
+
+        logger.info("Creating IVF indexing with nlist={nlist} for cluster size {cluster_size}")
+
+        index = faiss.IndexIVFFlat(quantizer, self.embedding_dim, nlist)
+
+        try:
+            index.train(content_embs_np.astype(np.float32))
+            index.add(content_embs_np.astype(np.float32))
+            logger.info("Done indexing with IVF")
+            return index
+        except Exception as e:
+            index = faiss.IndexFlatIP(self.embedding_dim)
+            index.add(content_embs_np.astype(np.float32))
+            logger.info(f"Done indexing with FLAT due to error : {e}")
+            return index
+
+
+
+    def _create_hnsw_index(self, content_embs_np : np.ndarray, cluster_size: int):      
+        # M is the number of neighbors used in the graph. A larger M is more accurate but uses more memory
+        # efConstruction is the depth of exploration at add time
+        # efSearch is the depth of exploration of the search
+
+        if cluster_size <= 20:
+            M = 8
+            efConstruction = 50
+        elif cluster_size <= 100:
+            M = 16
+            efConstruction = 100
+        elif cluster_size <= 500:
+            M = 24
+            efConstruction = 200
+        elif cluster_size <= 2000:
+            M = 32
+            efConstruction = 500
+        else:
+            M = 64
+            efConstruction = 1000
+
+        logger.info(f"Creating HNSW indexing with M = {M} for cluster size {cluster_size} and efConstruction {efConstruction}")
+        
+        try:
+            index = faiss.IndexHNSWFlat(self.embedding_dim, M)
+            index.hnsw.efConstruction = efConstruction
+            index.add(content_embs_np.astype(np.float32))
+            
+            logger.info("Done indexing with HNSW")
+            return index
+        except Exception as e:
+            index = faiss.IndexFlatIP(self.embedding_dim)
+            index.add(content_embs_np.astype(np.float32))
+
+            logger.info(f"Done indexing with FLAT due to error : {e}")
+            return index
+
+    
+
+    def _create_flat_index(self, content_embs_np : np.ndarray, cluster_size: int):
+        try:
+            index = faiss.IndexFlatIP(self.embedding_dim)
+            index.add(content_embs_np.astype(np.float32))
+            return index
+        except Exception as e:
+            logger.error(f"Failed flat indexing due to {e}")
+
+
+    def build_hierarchical_index(self, content_embeddings: List[np.ndarray], 
+                                metadata_embeddings: List[np.ndarray], 
+                                chunk_list: List[str], 
+                                metadata_list: List[Dict[str, str]],
+                                chunk_ids: List[str]):
+        logger.info("Building hierarchical FAISS index...")
+        
+        # Step 1: Building coarse metadata clusters
+        self._build_metadata_clusters(metadata_embeddings, metadata_list)
+        
+        # Step 2: Assign chunks to top-k most similar metadata clusters
+        cluster_data = self._assign_chunks_to_clusters(
+            chunk_list, content_embeddings, metadata_embeddings, metadata_list, chunk_ids
+        )
+        
+        # Step 3: Building fine grained cluster w.r.t chunks
+        logger.info("Building chunk based finer cluster.")
+        
+        for cluster_id, data in cluster_data.items():
+            if not data['texts']: 
+                continue
+                
+            content_embs = data['content_embeddings']
+            texts = data['texts']
+            metadata = data['metadata']
+            chunk_ids_list = data['chunk_ids']
+            
+            content_embs_np = np.array(content_embs)
+            if len(content_embs_np.shape) == 3:
+                content_embs_np = content_embs_np.squeeze(1)
+            
+            cluster_size = len(content_embs_np)
+            
+            # if cluster_size > 200:
+            #     quantizer = faiss.IndexFlatIP(self.embedding_dim)
+            #     nlist = min(max(cluster_size // 30, 4), 64)
+            #     index = faiss.IndexIVFFlat(quantizer, self.embedding_dim, nlist)
+                
+            #     if cluster_size >= nlist * 2:
+            #         index.train(content_embs_np.astype(np.float32))
+            #         index.add(content_embs_np.astype(np.float32))
+            #     else:
+            #         index = faiss.IndexFlatIP(self.embedding_dim)
+            #         index.add(content_embs_np.astype(np.float32))
+            # else:
+            #     index = faiss.IndexFlatIP(self.embedding_dim)
+            #     index.add(content_embs_np.astype(np.float32))
+
+            # Indexing by IVF
+            # index = self._create_ivf_index(content_embs_np, cluster_size)
+
+            # Indexing by HNSW
+            # index = self._create_hnsw_index(content_embs_np, cluster_size)
+            
+            # Indexing flat
+            index = self._create_flat_index(content_embs_np, cluster_size)
+
+            self.content_indices[cluster_id] = index
+            self.cluster_metadata[cluster_id] = metadata
+            self.cluster_content_embeddings[cluster_id] = content_embs_np
+            self.cluster_texts[cluster_id] = texts
+            self.cluster_chunk_ids[cluster_id] = chunk_ids_list
+        
+        logger.info(f"Built hierarchical index with {len(self.content_indices)} content clusters")
+    
+    def _find_relevant_metadata_clusters(self, metadata_embedding: np.ndarray, 
+                                       num_clusters: int = 5) -> List[str]:
+        if self.metadata_cluster_index is None or len(self.metadata_clusters) == 0:
+            logger.warning("No metadata clusters available")
+            return []
+        
+        if len(metadata_embedding.shape) == 2:
+            metadata_embedding = metadata_embedding.squeeze(0)
+        
+        norm = np.linalg.norm(metadata_embedding)
+        if norm > 0:
+            metadata_embedding = metadata_embedding / norm
+        
+        search_k = min(num_clusters, len(self.metadata_clusters))
+        
+        try:
+            scores, indices = self.metadata_cluster_index.search(
+                metadata_embedding.reshape(1, -1).astype(np.float32),
+                search_k
+            )
+            
+            # get relevant metadata cluster 
+            cluster_ids = list(self.metadata_clusters.keys())
+            relevant_clusters = []
+            
+            for idx, score in zip(indices[0], scores[0]):
+                if idx != -1 and idx < len(cluster_ids):
+                    cluster_id = cluster_ids[idx]
+                    # Only include clusters that have content indices
+                    if cluster_id in self.content_indices:
+                        relevant_clusters.append((cluster_id, float(score)))
+                        # logger.info(f"Selected metadata cluster {cluster_id} with score {score:.3f}")
+            
+            return relevant_clusters
+            
+        except Exception as e:
+            logger.error(f"Error in metadata cluster search: {e}")
+            return [(cid, 0.0) for cid in list(self.metadata_clusters.keys())[:search_k] 
+                   if cid in self.content_indices]
+    
+    def _search_content_cluster(self, cluster_id: str, query_embedding: np.ndarray, 
+                              k: int, ef_search: Optional[int] = None) -> List[Tuple[float, str, int, Dict, str]]:
+        if cluster_id not in self.content_indices:
+            return []
+        
+        index = self.content_indices[cluster_id]
+        metadata_list = self.cluster_metadata[cluster_id]
+        texts_list = self.cluster_texts[cluster_id]
+        chunk_ids_list = self.cluster_chunk_ids[cluster_id]
+        
+        # # HNSW indexing case
+        # if hasattr(index, 'hnsw') and hasattr(index.hnsw, 'efSearch'):
+        #     cluster_size = len(metadata_list)
+
+        #     if ef_search  is not None:
+        #         index.hnsw.efSearch = ef_search
+        #     else:
+        #         if cluster_size <= 50:
+        #             index.hnsw.efSearch = max(k*4,32)
+        #         elif cluster_size <= 200:
+        #             index.hnsw.efSearch = max(k*4,100)
+        #         elif cluster_size <= 1000:
+        #             index.hnsw.efSearch = max(k*3,200)
+        #         else:
+        #             index.hnsw.efSearch = max(k*3,500)
+                
+        #         index.hnsw.efSearch = min(index.hnsw.efSearch, max(min(cluster_size,512),k))
+        
+        try:
+            if len(query_embedding.shape) == 2:
+                query_embedding = query_embedding.squeeze(0)
+            
+            search_k = min(k, len(texts_list))
+            scores, indices = index.search(
+                query_embedding.reshape(1, -1).astype(np.float32),
+                search_k
+            )
+            
+            results = []
+            for score, idx in zip(scores[0], indices[0]):
+                if idx != -1 and idx < len(texts_list):
+                    results.append((
+                        float(score),
+                        cluster_id,
+                        idx,
+                        metadata_list[idx],
+                        texts_list[idx],
+                        chunk_ids_list[idx]
+                    ))
+            
+            return results
+
+        except Exception as e:
+            logger.error(f"Error in searching content cluster {cluster_id}: {e}")
+            return []
+        
+
+        # if hasattr(index, 'nprobe'):
+        #     # cluster_size = len(texts_list)
+        #     # 
+        #     # if cluster_size <= 50:
+        #     #     index.nprobe = min(getattr(index,'nlist',10), max(1, getattr(index,'nlist', 10)//2))
+        #     # else: 
+        #     index.nprobe = min(getattr(config, 'NPROBE', 10), getattr(index, 'nlist', 10))
+            
+        #     # logger.debug(f"Set nprobe={index.nprobe} for cluster {cluster_id} (nlist = {getattr(index,'nlist','unknown')})")
+
+        # try:
+        #     if len(query_embedding.shape) == 2:
+        #         query_embedding = query_embedding.squeeze(0)
+            
+        #     search_k = min(k, len(texts_list))
+        #     scores, indices = index.search(
+        #         query_embedding.reshape(1, -1).astype(np.float32),
+        #         search_k
+        #     )
+            
+        #     results = []
+        #     for score, idx in zip(scores[0], indices[0]):
+        #         if idx != -1 and idx < len(texts_list):
+        #             results.append((
+        #                 float(score),
+        #                 cluster_id,
+        #                 idx,
+        #                 metadata_list[idx],
+        #                 texts_list[idx]
+        #             ))
+            
+        #     return results
+            
+        # except Exception as e:
+        #     logger.error(f"Error in searching content cluster {cluster_id}: {e}")
+        #     return []
+    
+    def search(self, query_text: str, query_embedding: np.ndarray, 
+              query_metadata: Dict, metadata_embedding: np.ndarray, 
+              query_chunk_id: str,
+              k: int = 12, num_metadata_clusters: int = 3, ef_search : Optional[int] = None) -> List[Tuple[float, int, Dict, str]]:
+        """
+        Hierarchical FAISS:
+        1. First find relevant metadata clusters using query metadata
+        2. Then search content within selected metadata clusters using query content embedding
+        """
+        # Step 1: Finding relevant metadata clusters
+        relevant_clusters_with_score = self._find_relevant_metadata_clusters(
+            metadata_embedding, num_metadata_clusters
+        )
+        
+        if not relevant_clusters_with_score:
+            logger.warning("No relevant metadata clusters found")
+            return []
+        
+        # logger.info(f"Found {len(relevant_clusters)} relevant metadata clusters")
+        
+        # Step 2:Now search for the content within relevant clusters
+        relevant_clusters = [cluster_id for cluster_id, _ in relevant_clusters_with_score]
+
+        all_results = []
+        # results_per_cluster = max(1, (k * 2) // len(relevant_clusters))
+        
+        cluster_k_map = {}
+        for idx, cluster_id in enumerate(relevant_clusters):
+            if idx == 0:
+                cluster_k = k
+            elif idx == 1:
+                cluster_k = max(1,k//3)
+            elif idx == 2:
+                cluster_k = max(1,k//3)
+            else:
+                cluster_k = max(1,k//3)
+
+            cluster_k_map[cluster_id] = cluster_k
+
+        with ThreadPoolExecutor(max_workers=min(len(relevant_clusters), 6)) as executor:
+
+            future_to_cluster = {
+                executor.submit(self._search_content_cluster, cluster_id, query_embedding, cluster_k_map[cluster_id], ef_search): cluster_id
+                for cluster_id in relevant_clusters
+            }
+            
+            for future in as_completed(future_to_cluster):
+                cluster_id = future_to_cluster[future]
+                try:
+                    cluster_results = future.result(timeout=15)
+                    all_results.extend(cluster_results)
+                    # logger.info(f"Found {len(cluster_results)} results in cluster {cluster_id}")
+                except Exception as e:
+                    logger.error(f"Error in parallel search for cluster {cluster_id}: {e}")
+        
+        all_results.sort(key=lambda x: x[0], reverse=True)
+        
+        logger.debug(f"Total results from {len(relevant_clusters)} clusters: {len(all_results)}, and returning top {k}")
+        
+        results = []
+        for score, cluster_id, local_idx, metadata, text, chunk_id in all_results[:k]:
+            results.append((score, metadata, text, chunk_id))
+
+        expected_cluster = self.chunk_to_clusters_with_score.get(query_chunk_id,{})
+        searched_cluster = relevant_clusters_with_score
+
+        final_results = {
+            "results" : results,
+            "expected_cluster": expected_cluster,
+            "searched_cluster": searched_cluster
+        }
+        return final_results
+    
+    def save_index(self, path: str):
+        os.makedirs(path, exist_ok=True)
+        
+        if self.metadata_cluster_index is not None:
+            faiss.write_index(self.metadata_cluster_index, os.path.join(path, "metadata_clusters.faiss"))
+        
+        for cluster_id, index in self.content_indices.items():
+            safe_name = cluster_id.replace('/', '_').replace('\\', '_')
+            faiss.write_index(index, os.path.join(path, f"content_{safe_name}.index"))
+        
+        metadata_file = os.path.join(path, "metadata_index.pkl")
+        with open(metadata_file, 'wb') as f:
+            pickle.dump({
+                'metadata_clusters': self.metadata_clusters,
+                'cluster_metadata': self.cluster_metadata,
+                'cluster_texts': self.cluster_texts,
+                'cluster_chunk_ids': self.cluster_chunk_ids,
+                'cluster_assignments': self.cluster_assignments,
+                'embedding_dim': self.embedding_dim,
+                'metadata_dim': self.metadata_dim,
+                'metadata_cluster_centroids': self.metadata_cluster_centroids,
+                'chunk_to_clusters_with_score': self.chunk_to_clusters_with_score
+            }, f)
+        
+        logger.info(f"Saved hierarchical faiss index to {path}")
+    
+    def load_index(self, path: str):
+        metadata_index_path = os.path.join(path, "metadata_clusters.faiss")
+        if os.path.exists(metadata_index_path):
+            self.metadata_cluster_index = faiss.read_index(metadata_index_path)
+        
+        metadata_file = os.path.join(path, "metadata_index.pkl")
+        if os.path.exists(metadata_file):
+            with open(metadata_file, 'rb') as f:
+                data = pickle.load(f)
+                self.metadata_clusters = data['metadata_clusters']
+                self.cluster_metadata = data['cluster_metadata']
+                self.cluster_texts = data['cluster_texts']
+                self.cluster_chunk_ids = data.get('cluster_chunk_ids', {})
+                self.cluster_assignments = data['cluster_assignments']
+                self.embedding_dim = data['embedding_dim']
+                self.metadata_dim = data.get('metadata_dim', 128)
+                self.metadata_cluster_centroids = data.get('metadata_cluster_centroids')
+                self.chunk_to_clusters_with_score = data['chunk_to_clusters_with_score']
+
+        for cluster_id in self.metadata_clusters.keys():
+            safe_name = cluster_id.replace('/', '_').replace('\\', '_')
+            index_path = os.path.join(path, f"content_{safe_name}.index")
+            if os.path.exists(index_path):
+                self.content_indices[cluster_id] = faiss.read_index(index_path)
+        
+        logger.info(f"Loaded hierarchical index from {path}")
+
+# llm_fun.py
+
+import requests
+import logging
+import json
+import re
+import xml.etree.ElementTree as ET
+from typing import List, Dict
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+logging.basicConfig(
+    filename='log_25_6.log',
+    filemode='w',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+import warnings
+warnings.filterwarnings("ignore")
+
+
+_chunk_counter = 0
+
+def reset_counter():
+    global _chunk_counter
+    _chunk_counter = 0
+
+def get_next_chunk_id() -> str:
+    global _chunk_counter 
+    _chunk_counter += 1
+    return f"chunk_{_chunk_counter:08d}"
+
+def get_llm_response(prompt: str, system_prompt: str = "You are a helpful assistant.") -> str:
+    # print(type(prompt))
+    payload = {
+        "prompt": {
+            "system_prompt": system_prompt,
+            "user_prompt": prompt
+        },
+        "model": {
+            "name": "gemini-1.5-pro",
+            "top_p": 1,
+            "temperature": 0.2,
+            "max_tokens": 8100,
+            "do_sample": True,
+            "repetition_penalty": 0
+        }
+    }
+    response = requests.post(url="", json=payload, verify=False)
+    
+    # response = requests.post(url="", json=payload, verify=False)
+    # print(prompt)
+
+    # print(f"Response status : {response.status_code}")
+    # print(response.json())
+    if response.status_code == 200:
+        return response.json().get("response", "")
+    else :
+        logger.info("Error in getting llm response: Fun(get_llm_response)")
+        return ""
+
+
+
+
+
+
+def get_chunk_metadata_from_llm(document_content: str) -> List[Dict]:    
+    prompt = f"""
+    <task>
+    Analyze the following document and extract meaningful chunks with their metadata and related queries.
+    Each chunk should contain substantial information and avoid duplication.
+    Return the response in a structured JSON format for easy parsing for entire document and all chunks.
+    </task>
+
+    <document>
+    {document_content}
+    </document>
+
+    <instructions>
+    1. Break the document into meaningful, coherent chunks (200-800 words each i.e at max 2000 tokens)
+    2. For each chunk, extract comprehensive metadata
+    3. Generate 1-2 related queries that this chunk can answer
+    4. Skip chunks and texts that don't add new information
+    5. Ensure chunks are self-contained and meaningful
+    6. Make sure query metadata is w.r.t to query not same as chunk metadata
+    7. Return the entire response as a valid JSON array
+    8. This chunk will be used for RAG pipeline so give chunks of entire documents
+    </instructions>
+
+    <output_format>
+    Return a JSON array where each element is a chunk object with this structure:
+    {{
+        "chunk_id": "1",
+        "text": "Full chunk text content here...",
+        "metadata": {{
+            "gender": Specify that chunk refer to which gender
+            "age group": Specify the age group refered by the chunk
+            "keywords": Comma-separated keywords for the chunk at max 5 words that describe the sementic of the chunk
+            "summary" : Brief summary at max 20-30 words that describe the sementic of the chunk
+            "location": Specific location refered in the chunk then add otherwise unknown
+        }},
+        "queries": [
+            {{
+               "query id": "1",
+               "text": "Give the related query from the chunk"
+                "metadata": {{
+                    "gender": Specify that query refer to which gender
+                    "age group": Specify the age group refered by the query
+                    "keywords": Comma-separated keywords for the query at max 3 words that describe the sementic of the query(if possible different words then chunk keywords)
+                    "summary" : Brief summary at max 5-10 words that describe the sementic of the query
+                    "location": Specific location refered in the chunk then add otherwise unknown
+                }}
+            }},
+            {{
+                "query id": "2",
+               "text": "Give the other related query from the chunk"
+                "metadata": {{
+                    "gender": Specify that query refer to which gender
+                    "age group": Specify the age group refered by the query
+                    "keywords": Comma-separated keywords for the query at max 3 words that describe the sementic of the query(if possible different words then chunk keywords)
+                    "summary" : Brief summary at max 5-10 words that describe the sementic of the query
+                    "location": Specific location refered in the chunk then add otherwise unknown
+                }}
+            }}
+        ]
+    }}
+
+    IMPORTANT: 
+    - Return ONLY the JSON array, no additional text
+    - Ensure all JSON is properly formatted and valid
+    - Each chunk should be completely self-contained
+    - Queries should be actual questions that users might ask about the content
+    - Make sure the entire document is covered without significant gaps
+    </output_format>
+    """
+
+    sys_prompt = "You are helpful assistent for chunking the documents, extracting metadata as a medical assistent."
+    response = get_llm_response(prompt,sys_prompt)
+    # print(f"\n{response}\n\n")
+
+    if response:
+        chunks_and_metadata = parse_json(response)
+        # logger.info(f"Extracted {len(chunks_and_metadata)} chunks with metadata and queries")
+        # print(f"chunks_and_metadata : {chunks_and_metadata}")
+        return chunks_and_metadata
+    else:
+        logger.error("Error in creating chunk from llm : Fun(get_chunk_metadat_from_llm)")
+
+
+def parse_json(response_text: str) -> List[Dict]:
+    response_text = response_text.strip()
+    
+    if response_text.startswith('```json'):
+        response_text = response_text[len('```json'):].strip()
+
+    if response_text.endswith('```'):
+        response_text = response_text[:-3].strip()
+    
+    # print(f"Res : {response_text}")
+    cleaned = response_text.replace('\xa0',' ')
+    chunks_data = json.loads(cleaned)
+    # print(f"Chk data : {chunks_data}")
+    res = []
+    for chunk in chunks_data:
+        chunk_id = get_next_chunk_id()
+        query = []
+        for qry in chunk.get("queries",[]):
+            qry['chunk_id'] = chunk_id
+            query.append(qry)
+        # print(query)
+        ent = {
+            'id': chunk_id,
+            'text': chunk.get("text",""),
+            'metadata': chunk.get("metadata", {}),
+            'queries': query
+        }
+        # print(ent)
+        # print(f"Qry : {query}")
+        # print(f"id : {chunk_id}")
+        # print(f"text : {chunk.get("text","")}")
+        # print(f"metadata : {chunk.get("metadata", {})}")
+        res.append(ent)
+    return res
+
