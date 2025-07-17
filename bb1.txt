@@ -1,0 +1,829 @@
+
+# def parse_response(response: str)-> List[Dict]:
+
+#     cleaned_response = clean_response(response)
+#     try:
+#         root = ET.fromstring(f"<root>{cleaned_response}</root>")
+#         chunks_data = []
+
+#         for chunk_elem in root.findall('chunk'):
+#             chunk_id = get_next_chunk_id()
+
+#             text_elem = chunk_elem.find('text')
+#             chunk_text = text_elem.text.strip() if text_elem is not None and text_elem.text else ""
+
+#             metadata_elem = chunk_elem.find('metadata')
+#             metadata = {}
+#             if metadata_elem is not None:
+#                 for meta_child in metadata_elem:
+#                     tag_name = meta_child.tag
+#                     tag_value = meta_child.text.strip() if meta_child.text else ""
+#                     metadata[tag_name] = tag_value
+            
+#             # Extract queries
+#             queries_elem = chunk_elem.find('queries')
+#             chunk_queries = []
+            
+#             if queries_elem is not None:
+#                 for query_elem in queries_elem.findall('query'):
+#                     query_text = query_elem.text.strip() if query_elem.text else ""
+                   
+#                     query_metadata_elem = query_elem.find('metadata')
+#                     query_metadata = {}
+#                     if query_metadata_elem is not None:
+#                         for meta_child in query_metadata_elem:
+#                             tag_name = meta_child.tag
+#                             tag_value = meta_child.text.strip() if meta_child.text else ""
+#                             query_metadata[tag_name] = tag_value
+                    
+#                     if query_text:
+#                         query_data = {
+#                             'text': query_text,
+#                             'chunk_id': chunk_id,
+#                             'metadata': query_metadata
+#                         }
+#                         chunk_queries.append(query_data)
+            
+#             # Create chunk data structure
+#             # print(metadata)
+#             chunk_data = {
+#                 'id': chunk_id,
+#                 'text': chunk_text,
+#                 'metadata': metadata,
+#                 'queries': chunk_queries
+#             }
+            
+#             chunks_data.append(chunk_data)
+        
+#         return chunks_data
+        
+        # # Write chunks and metadata to file
+        # chunks_file_path = os.path.join(output_dir, "chunks_and_metadata.json")
+        # with open(chunks_file_path, 'w', encoding='utf-8') as f:
+        #     json.dump(chunks_data, f, indent=2, ensure_ascii=False)
+        
+        # # Write queries with metadata to JSON file
+        # queries_file_path = os.path.join(output_dir, "queries_with_metadata.json")
+        # with open(queries_file_path, 'w', encoding='utf-8') as f:
+        #     json.dump(all_queries, f, indent=2, ensure_ascii=False)
+        
+        # # Also write a readable text format
+        # write_readable_format(chunks_data, all_queries, output_dir)
+        
+        # print(f"Successfully parsed {len(chunks_data)} chunks with {len(all_queries)} total queries")
+        # print(f"Files saved to: {output_dir}/")
+        
+
+        # # Return in the requested format: list of dicts with chunk text and metadata
+        # return_data = []
+        # for chunk in chunks_data:
+        #     return_data.append({
+        #         'chunk_text': chunk['text'],
+        #         'chunk_metadata': chunk['metadata']
+        #     })
+        
+        # return return_data
+        
+#     except ET.ParseError as e:
+#         print(f"XML response parsing error: {e}")
+#         return []
+
+
+# def clean_response(response: str) -> str:
+#     start_match = re.search(r'<chunk',response)
+#     if start_match : 
+#         response = response[start_match.start():]
+    
+#     end_matches = list(re.finditer(r'</chunk>',response))
+
+#     if end_matches:
+#         last_match = end_matches[-1]
+#         response = response[:last_match.end()]
+
+#     response = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;)', '&amp;', response)
+#     return response
+
+
+# def get_chunk_metadata_from_llm(doc_content : str) -> List[Dict]:
+    
+#     prompt = f"""
+#         <task>
+#         Analyze the following document and extract meaningful chunks with their metadata and related queries for evaluating RAG pipeline.
+#         Each chunk should contain substantial information related to medical.
+#         </task>
+
+#         <document>
+#         {doc_content}
+#         </document>
+
+#         <instructions>
+#         1. Give the response for entire document as used for RAG medical assistent (do not give so on we can do chunking)
+#         2. Break the document into meaningful, coherent chunks (200-800 words each)
+#         3. For each chunk, extract comprehensive metadata
+#         4. Generate 2-5 related queries that this chunk can answer along with the metadata in query
+#         5. Ensure chunks are self-contained and meaningful
+#         6. Do not add any extra or wrong information
+#         7. Skip chunks that don't add new information
+        
+
+#         Format your response as follows for each chunk:
+#         </instructions>
+
+#         <output_format>
+#         <chunk id="1">
+#             <text>
+#             [Chunk text content here]
+#             </text>
+            
+#             <metadata>
+#                 <gender>[Specify that chunk refer to which gender]</gender>
+#                 <age group>[Specify the age group refered by the chunk]</category>
+#                 <keywords>[Comma-separated keywords for the chunk at max 20 words]</keywords>
+#                 <summary>[Brief summary at max 30-40 words]</summary>
+#                 <document_type>[Type of document]</document_type>
+#                 <location>[Specific location refered in the chunk then add otherwise unknown]</domain>
+#             </metadata>
+            
+#             <queries>
+#                 <query id = "1">[Give the related query from the chunk] 
+#                     <metadata>
+#                         <gender>[Specify that chunk refer to which gender]</gender>
+#                         <age group>[Specify the age group refered by the chunk]</category>
+#                         <keywords>[Comma-separated keywords for the chunk at max 20 words]</keywords>
+#                         <summary>[Brief summary at max 30-40 words]</summary>
+#                         <location>[Specific location refered in the chunk then add otherwise unknown]</domain>
+#                     </metadata>
+#                 </query>
+
+#                 <query id = "2">
+#                     [Next query following same format] 
+#                 </query>
+#             </queries>
+#         </chunk>
+
+#         <chunk id="2">
+#             [Next chunk following same format]
+#         </chunk>
+#         ...
+#         </output_format>
+#        """
+#     sys_prompt = "You are helpful assistent for chunking the documents, extracting metadata as a medical assistent."
+#     response = get_llm_response(prompt,sys_prompt)
+#     # print(f"Response: {response}\n\n")
+
+#     if response:
+#         chunks_and_metadata = parse_response(response)
+#         # logger.info(f"Extracted {len(chunks_and_metadata)} chunks with metadata and queries")
+#         return chunks_and_metadata
+#     else:
+#         logger.error("Error in creating chunk from llm : Fun(get_chunk_metadat_from_llm)")
+    
+
+def get_llm_response_without_context(query:str) -> str:
+    prompt = f"""
+    You are a helpful medical assistant. Answer the following question based on your knowledge.
+    
+    Question: {query}
+    
+    Instructions:
+    - Provide a comprehensive answer based on your medical knowledge
+    - Be accurate and informative
+    - If you're uncertain about something, mention it
+    - Keep the response focused and relevant
+    """
+    
+    sys_prompt = "You are a knowledgeable medical assistant with expertise in healthcare topics."
+    response = get_llm_response(prompt, sys_prompt)
+    
+
+    if response:
+        return response
+    else:
+        logger.error("Error in getting answer from llm : Fun(get_llm_response_without_context)")
+
+
+def get_llm_response_with_context(context:str, query:str) -> str:
+    prompt = f"""
+    You are a helpful medical assistant. Answer the following question based on the provided context.
+    
+    Context:
+    {context}
+    
+    Question: {query}
+    
+    Instructions:
+    - Use the information provided in the context
+    - If the context doesn't contain enough information, mention that
+    - Be precise and accurate in your response
+    - Cite relevant parts of the context when answering
+    """
+    
+    sys_prompt = "You are a knowledgeable medical assistant. Provide accurate and helpful responses based on the given context."
+    response = get_llm_response(prompt, sys_prompt)
+    
+    if response:
+        return response
+    else:
+        logger.error("Error in getting answer from llm : Fun(get_llm_response_with_context)")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def get_chunk_from_llm(text: str,max_chunk_size: int = 5000) -> List[str]:
+    prompt = f"""
+    Please divide the following text into logical chunks that preserve semantic meaning. 
+    Preserve semantic meaning — each chunk should contain a self-contained topic or section.
+    Each chunk should be approximately {max_chunk_size} characters unless table or heading or sementic demands a longer or shorter unit..
+    Focus on maintaining context and coherence within each chunk.
+    This will later be embedded and indexed for retrieval by an LLM
+    Return only the chunks separated by "---CHUNK---":
+
+    Text: {text} 
+    """
+    
+    response = get_llm_response(prompt)
+    if response:
+        chunks = [chunk.strip() for chunk in response.split("---CHUNK---") if chunk.strip()]
+        return chunks if chunks else [text[:max_chunk_size]]
+    else:
+        # Fallback to simple chunking langchain chunking
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000,chunk_overlap=100)
+        chunks = text_splitter.split_text(text)
+        return chunks
+
+
+def get_metadata_from_llm(chunk: str) -> Dict[str, str]:
+    prompt = f"""
+    Analyze the following text chunk and extract key metadata as JSON:
+    - gender: male/female specify clearly
+    - age group: child,teenager,adult,old also do age range specification
+    - keywords: comma-separated key terms at max 5 words
+    - summary: brief 1-sentence summary at max 10 words
+    - location: city/country/region
+
+    Text: {chunk}
+
+    Return only valid JSON format.
+    """
+    
+    response = get_llm_response(prompt)
+    if response:
+        try:
+            # Extract JSON from response
+            json_start = response.find('{')
+            json_end = response.rfind('}') + 1
+            if json_start != -1 and json_end != 0:
+                metadata = json.loads(response[json_start:json_end])
+                return metadata
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse LLM metadata response as JSON")
+    
+    # Fallback metadata
+    return {
+        "gender": "Unknown",
+        "age group": "Unknown",
+        "keywords": "",
+        "summary": chunk[:100] + "...",
+        "location": "Unknown"
+    }
+
+
+# main.py
+import logging
+import os
+import json
+import numpy as np
+from typing import Dict
+from embedding import compute_embeddings, normalize_embeddings, compute_embeddings_mtd
+from data_process import load_documents, load_query
+from llm_fun import reset_counter,get_chunk_from_llm, get_metadata_from_llm, get_llm_response, get_chunk_metadata_from_llm, get_llm_response_with_context, get_llm_response_without_context
+from config import config
+from faiss_index import HierarchicalFAISSIndex
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.schema import Document
+
+import re
+import unicodedata
+logging.basicConfig(
+    filename='log_25_6.log',
+    filemode='w',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+import warnings
+warnings.filterwarnings("ignore")
+
+import sys
+log_file = open("output.log", "w")
+sys.stdout = log_file
+
+
+def metadata_embedding_text(metadata: Dict[str, str]) -> str:
+    text_parts = []
+    
+    # if metadata.get('gender'):
+    #     text_parts.append(f"Gender: {metadata['gender']}")
+    # if metadata.get('age_group'):
+    #     text_parts.append(f"Age_group: {metadata['age_group']}")
+    # if metadata.get('age_range'):
+    #     text_parts.append(f"Age_range: {metadata['age_range']}")  
+    # if metadata.get('keywords'):
+    #     text_parts.append(f"Keywords: {metadata['keywords']}")
+    # if metadata.get('summary'):
+    #     summary = metadata['summary'][:200] if len(metadata['summary']) > 200 else metadata['summary']
+    #     text_parts.append(f"Summary: {summary}")
+    # if metadata.get('location'):
+    #     text_parts.append(f"Location: {metadata['location']}")   
+    # return " | ".join(text_parts) if text_parts else "general content"
+
+    if metadata.get('gender'):
+        text_parts.append(f"{metadata['gender']}")
+    if metadata.get('age_group'):
+        text_parts.append(f"{metadata['age_group']}")
+    if metadata.get('age_range'):
+        text_parts.append(f"{metadata['age_range']}")  
+    if metadata.get('keywords'):
+        text_parts.append(f"{metadata['keywords']}")
+    # if metadata.get('summary'):
+    #     summary = metadata['summary'][:200] if len(metadata['summary']) > 200 else metadata['summary']
+    #     text_parts.append(f"{summary}")
+    # if metadata.get('location'):
+    #     text_parts.append(f"{metadata['location']}")   
+
+    # print(text_parts)
+    return " | ".join(text_parts) if text_parts else "general content"
+
+
+
+def create_document_splitter(chunk_size=6000, chunk_overlap=200):
+        
+    # Separators optimized for document processing
+    separators = [
+        "\n\n\n",  # Multiple newlines (section breaks)
+        "\n\n",    # Double newlines (paragraph breaks)
+        "\n",      # Single newlines
+        ". ",      # Sentence endings
+        "! ",      # Exclamation sentences
+        "? ",      # Question sentences
+        "; ",      # Semicolons
+        ", ",      # Commas
+        " ",       # Spaces
+        ""         # Character level (last resort)
+    ]
+    
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=separators,
+        length_function=len,
+        keep_separator=True
+    )
+    
+    return splitter
+
+
+def seg_document(doc_content, filename, batch_processor_func, 
+                                   max_chunk_tokens=6000, overlap_tokens=200):
+    
+    splitter = create_document_splitter(
+        chunk_size=max_chunk_tokens,
+        chunk_overlap=overlap_tokens
+    )
+
+    try:
+        doc = Document(page_content=doc_content, metadata={"source": filename})
+        
+        split_docs = splitter.split_documents([doc])
+        logger.info(f"Splitting document '{filename}' into {len(split_docs)} chunks using LangChain")
+        
+    except ImportError:
+        split_texts = splitter.split_text(doc_content)
+        logger.info(f"Splitting document '{filename}' into {len(split_texts)} chunks using LangChain (text mode)")
+        
+        split_docs = []
+        for i, text in enumerate(split_texts):
+            split_docs.append({
+                'page_content': text
+            })
+    
+    all_chunks_data = []
+    
+    for i, doc_chunk in enumerate(split_docs):
+        logger.info(f"Processing chunk {i+1}/{len(split_docs)} for {filename}")
+        
+        if hasattr(doc_chunk, 'page_content'):
+            chunk_content = doc_chunk.page_content
+        else:
+            chunk_content = doc_chunk['page_content']
+        
+        try:
+            chunk_data = batch_processor_func(chunk_content)
+            all_chunks_data.extend(chunk_data)
+            
+        except Exception as e:
+            logger.error(f"Error processing LangChain chunk {i+1} of {filename}: {e}")
+            continue
+    
+    return all_chunks_data
+
+
+
+
+def build_index_from_documents():
+    faiss_index = HierarchicalFAISSIndex(
+        embedding_dim=config.CHUNK_EMBEDDING_DIM,
+        metadata_dim=config.METADATA_EMBEDDING_DIM 
+    )
+    
+    reset_counter()
+    
+    logger.info("Loading and preprocessing documents.")
+    documents = load_documents(config.DATA_FOLDER)
+
+    if not documents:
+        logger.error("No documents ? Please check the data folder.")
+        return None
+    
+    os.makedirs(config.LLM_CHUNK, exist_ok=True)
+    os.makedirs(config.QUERY, exist_ok=True)
+    all_chunks = []
+    all_metadata = [] 
+    all_chunk_ids = []
+
+    MAX_CHUNK_TOKENS = config.MAX_CHUNK_TOKENS
+    OVERLAP_TOKENS = config.OVERLAP_TOKENS
+
+    for doc in documents:
+        logger.info(f"Processing document: {doc['filename']}")
+        
+        
+        # chunks_and_data = get_chunk_from_llm(doc['content'])
+        print(f"Processing document: {doc['filename']}")
+        print("*"*100 + "\n")
+        text = doc['content']
+        text = unicodedata.normalize("NFKC",text)
+        text = text.replace('\xa0',' ')
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]',' ',text) # remove control char
+        text = re.sub(r'[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]',' ',text) # invisible unicode
+        chunks_and_data = seg_document(
+            text, 
+            doc['filename'], 
+            get_chunk_metadata_from_llm,
+            max_chunk_tokens=MAX_CHUNK_TOKENS,
+            overlap_tokens=OVERLAP_TOKENS
+        )
+        
+        filename = os.path.splitext(doc['filename'])[0]
+    #     chunks_and_data = get_chunk_metadata_from_llm(doc['content'])
+    #     if chunks_and_data == None:
+    #         continue
+    #     logger.info(f"Document: {doc['filename']} given {len(chunks_and_data)} chunks")
+    # #     print(chunks_and_data)
+    #     filename = os.path.splitext(doc['filename'])[0]
+
+    #     if chunks_and_data == None:
+    #         print(f"No chunk for the file : {filename}")
+    #         continue
+        
+        chunk_metadata_file = os.path.join(config.LLM_CHUNK, f"{filename}.txt")
+        query_file = os.path.join(config.QUERY, f"{filename}.json")
+
+        chunks = []
+        queries = []
+        for chk in chunks_and_data:
+            chk_mtd = {
+                'chunk_text': chk['text'],
+                'chunk_metadata':chk['metadata']
+            }
+            chunks.append(chk_mtd)
+            all_chunks.append(chk['text'])
+            all_metadata.append(chk['metadata'])
+            all_chunk_ids.append(chk['id'])
+
+            # print(f"Chunk : {chk['text']}\n Metadata : {chk['metadata']}")
+            qry = chk['queries']
+            for q in qry:
+                queries.append(q)
+            
+           
+        with open(chunk_metadata_file, "w", encoding="utf-8") as f:
+            json.dump(chunks, f, indent=2, ensure_ascii=False)
+        
+        with open(query_file, "w", encoding="utf-8") as f:
+            json.dump(queries, f, indent=2, ensure_ascii=False)
+        
+        # logger.info(f"Created {len(chunks_and_data)} chunks from {doc['filename']}")
+    
+    logger.info(f"Total chunks created: {len(all_chunks)}")
+
+    logger.info("Computing embeddings for chunks.")
+    chunk_embeddings = []
+    for chunk in all_chunks:
+        chunk_embedding = compute_embeddings(chunk,config.CHUNK_EMBEDDING_DIM)
+        # chunk_embedding = normalize_embeddings(chunk_embedding)
+        chunk_embeddings.append(chunk_embedding)
+
+    logger.info("Computing metadata embeddings")
+    metadata_embeddings = []
+    for metadata in all_metadata:
+        metadata_embedding = compute_embeddings_mtd(metadata_embedding_text(metadata),config.METADATA_EMBEDDING_DIM)
+        # metadata_embedding = normalize_embeddings(metadata_embedding)
+        metadata_embeddings.append(metadata_embedding)
+
+
+    logger.info("Building hierarchical FAISS index.")
+    faiss_index.build_hierarchical_index(chunk_embeddings, metadata_embeddings, all_chunks, all_metadata, all_chunk_ids)
+
+    if not os.path.exists(config.INDEX_PATH):
+        os.makedirs(config.INDEX_PATH)
+    faiss_index.save_index(config.INDEX_PATH)
+    
+    logger.info("Indexing done ????")
+    return faiss_index
+
+
+def load_existing_index():
+    faiss_index = HierarchicalFAISSIndex(
+        embedding_dim=config.CHUNK_EMBEDDING_DIM,
+        metadata_dim=config.METADATA_EMBEDDING_DIM
+    )
+    
+    try:
+        faiss_index.load_index(config.INDEX_PATH)
+        return faiss_index
+    except Exception as e:
+        logger.error(f"Failed to load existing index: {e}")
+        return None
+
+
+def check_index_exists():
+    index_files = [
+        os.path.join(config.INDEX_PATH, "metadata_clusters.faiss"),
+        os.path.join(config.INDEX_PATH, "metadata_index.pkl")
+    ]
+    return all(os.path.exists(f) for f in index_files)
+
+def process_queries(faiss_index, queries):
+    if not queries:
+        logger.warning("No queries.")
+        return
+
+    logger.info("Processing queries with provided metadata")
+
+    correct_retrievals = 0
+    correct_metadata_retrievals1 = 0
+    correct_metadata_retrievals2 = 0
+    correct_metadata_retrievals3 = 0
+    total_queries = len(queries)
+
+    for i, query_item in enumerate(queries):
+        try:
+            if isinstance(query_item, dict):
+                query_text = query_item.get('text', query_item.get('query', ''))
+                provided_metadata = query_item.get('metadata', {})
+                expected_chunk_id = query_item.get('chunk_id', '')
+                # query = query_item.get('query', '')
+                # provided_metadata = query_item.get('metadata', {})
+            else:
+                query_text = str(query_item)
+                provided_metadata = {}
+                expected_chunk_id = ''
+                # query = str(query_item)
+                # provided_metadata = {}
+            
+            # logger.info(f"\nQuery {i+1}: {query}")
+            # logger.info(f"Provided metadata: {provided_metadata}")
+            
+            if not query_text:
+                logger.warning(f"Empty query at index {i}")
+                continue
+
+
+            # print(f"Question {i+1}: \n{query_text}\n")
+            # print(f"Query metadata : {provided_metadata}")
+            # print(f"Query Chunk id : {expected_chunk_id}")
+
+            query_embedding = compute_embeddings(query_text, config.CHUNK_EMBEDDING_DIM)
+            # query_embedding = normalize_embeddings(query_embedding)
+
+            if provided_metadata:
+                query_metadata = provided_metadata
+                # logger.info("Using provided metadata for query")
+            else:
+                # logger.info("No metadata provided, generating it from LLM.")
+                query_metadata = get_metadata_from_llm(query_text)
+            
+            metadata_embedding = compute_embeddings_mtd(
+                metadata_embedding_text(query_metadata),
+                config.METADATA_EMBEDDING_DIM
+            )
+            # metadata_embedding = compute_embeddings(metadata_embedding_text(query_metadata),config.METADATA_EMBEDDING_DIM)
+            # metadata_embedding = normalize_embeddings(metadata_embedding)
+            # print(f"Query embedding : {type(query_embedding)}")
+            # print(f"Metadata embedding: {type(metadata_embedding)}")
+
+            query_embedding = np.array(query_embedding)
+            metadata_embedding = np.array(metadata_embedding)
+            final_results = faiss_index.search(
+                query_text, query_embedding, query_metadata, metadata_embedding, expected_chunk_id
+            )
+
+            # print(final_results)
+            results = final_results.get("results",{})
+            expected_cluster = final_results.get("expected_cluster",{})
+            searched_cluster = final_results.get("searched_cluster",{})
+            if len(results) == 0:
+                continue
+            # print(f"Result : {results}")
+            context_parts = []
+            retrieved_chunk_ids = []
+            # logger.info(f"Found {len(results)} relevant chunks:")
+            for score, metadata, text, chunk_id in results:
+                # print(f"[Score: {score:.3f}] \n Text : {text} \n Metadata : {metadata}\n")
+                context_parts.append(f"{text}")
+                retrieved_chunk_ids.append(chunk_id)
+                # result_chunk_id = metadata.get('chunk_id', f'chunk_{local_idx}')
+                # retrieved_chunk_ids.append(result_chunk_id)
+                # logger.info(f"  Score: {score:.3f}, Metadata: {metadata}")
+            
+            context = "\n\n".join(context_parts)
+
+            # store chunk id with all the query and see if this id is in retrive context chunk id then give 1 otherwise give 0 and final score be this sum/totalqueries
+            retrieval_score = 1 if expected_chunk_id in retrieved_chunk_ids else 0
+            correct_retrievals += retrieval_score
+
+            exp_clus = [id for id, _ in expected_cluster]
+            ser_clus = [id for id, _ in searched_cluster]
+            if len(exp_clus) > 0:
+                for j in range(len(ser_clus)):
+                    if (j == 0) and (ser_clus[j] == exp_clus[0]):
+                        correct_metadata_retrievals1 += 1
+                    elif (j == 1) and (ser_clus[j] == exp_clus[0]):
+                        correct_metadata_retrievals2 += 1
+                    elif (j == 2) and (ser_clus[j] == exp_clus[0]):
+                        correct_metadata_retrievals3 += 1
+            
+            # if chunk_id and chunk_id in retrieved_chunk_ids:
+            #     correct_retrievals += 1
+            # full_prompt = f"Context:\n{context}\n\nQuestion: {query}"
+            # full_prompt = "Answer the question with the help of given context if relevant" + full_prompt 
+
+            # answer = get_llm_response(full_prompt)
+            # ans = get_llm_response(query)
+
+            ans_rag = get_llm_response_with_context(context, query_text)
+            ans_no_rag = get_llm_response_without_context(query_text)
+
+            # print(f"Processing {i+1}th query")
+            # # print(f"Question {i+1}: \n{query_text}\n")
+            # # print(f"Query Metadata: \n{query_metadata}\n")
+            print(f"Question {i+1}: \n{query_text}")
+            print(f"Expected Chunk ID: {expected_chunk_id}")
+            print(f"Retrieved Chunk IDs: {retrieved_chunk_ids}")
+
+            print(f"Expected Metadata IDs: {expected_cluster}")
+            print(f"Retrieved Metadata IDs:{searched_cluster}")
+
+            # print(f"Context Extracted: \n{context}\n")
+
+            print(f"Answer with RAG: \n{ans_rag}\n")
+            print(f"Answer without RAG : \n{ans_no_rag}\n\n")
+            print("-" * 150)
+
+
+        except Exception as e:
+            logger.error(f"Error processing query {i}: {e}")
+            continue
+    
+    logger.info("Done with query.")
+    if total_queries > 0:
+        accuracy1 = correct_retrievals / total_queries
+        accuracy2 = (correct_metadata_retrievals1 + correct_metadata_retrievals2 + correct_metadata_retrievals3) / total_queries
+        print(f"\nRetrieval Accuracy(chunk_id): {correct_retrievals}/{total_queries} = {accuracy1:.2%}")
+        print(f"\nRetrieval Accuracy(metadata_cluster): ({correct_metadata_retrievals1} + {correct_metadata_retrievals2} + {correct_metadata_retrievals3} )/{total_queries} = {accuracy2:.2%}")
+
+
+def load_queries(query_file):
+    queries = []
+    for qr in query_file:
+        queries.append({'query' : qr['text'],'chunk_id':qr['chunk_id'],'metadata':qr['metadata']})
+    return queries
+
+def main():
+    if check_index_exists():
+        logger.info("Found existing index. Loading")
+        faiss_index = load_existing_index()
+        
+        if faiss_index is not None:
+            query_doc = load_query(config.QUERY)
+            
+            if query_doc:
+                qry = load_queries(query_doc)
+                # print(f"Query : {qry}")
+                process_queries(faiss_index, qry)
+
+            else:
+                logger.warning("No queries loaded. Please check your query folder.")
+        else:
+            logger.error("Failed to load existing index. Rebuilding")
+            faiss_index = build_index_from_documents()
+            if faiss_index:
+                query_doc = load_query(config.QUERY)
+                
+                if query_doc:
+                    qry = load_queries(query_doc)
+                    # print(f"Query : {qry}")
+                    process_queries(faiss_index, qry)
+                    # queries = []
+                    # for fl in query_doc:
+                    #     qr = load_queries(fl)
+                    #     queries.extend(qr)
+                    # process_queries(faiss_index, qr)
+    else:
+        logger.info("No existing index found. Building new index.")
+        faiss_index = build_index_from_documents()
+        if faiss_index:
+            query_doc = load_query(config.QUERY)
+            if query_doc:
+                qry = load_queries(query_doc)
+                # print(f"Query : {qry}")
+                process_queries(faiss_index, qry)
+                # queries = []
+                # for fl in query_doc:
+                #     qr = load_queries(fl)
+                #     queries.extend(qr)
+                # process_queries(faiss_index, qr)
+    
+    logger.info("\nRAG with hierarchical metadata clustering completed\n")
+
+if __name__ == '__main__':
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Hierarchical RAG System')
+    parser.add_argument('--rebuild', action='store_true', 
+                       help='Rebuild index even if it exists')
+    parser.add_argument('--query-only', action='store_true',
+                       help='Only run queries (requires existing index)')
+    parser.add_argument('--build-only', action='store_true',
+                       help='Only build index (skip queries)')
+    
+    args = parser.parse_args()
+    
+    if args.query_only:
+        if check_index_exists():
+            faiss_index = load_existing_index()
+            if faiss_index:
+                query_doc = load_query(config.QUERY)
+                
+                if query_doc:
+                    qry = load_queries(query_doc)
+                    # print(f"Query : {qry}")
+                    process_queries(faiss_index, qry)
+                    # queries = []
+                    # for fl in query_doc:
+                    #     qr = load_queries(fl)
+                    #     queries.extend(qr)
+                    # process_queries(faiss_index, qr)
+                else:
+                    logger.error("No queries loaded!")
+            else:
+                logger.error("Failed to load existing index!")
+        else:
+            logger.error("No existing index found! Use --rebuild to create one.")
+    
+    elif args.build_only:
+        logger.info("Building index only...")
+        build_index_from_documents()
+    
+    elif args.rebuild:
+        logger.info("Rebuilding index...")
+        faiss_index = build_index_from_documents()
+        if faiss_index:
+            query_doc = load_query(config.QUERY)
+            if query_doc:
+                qry = load_queries(query_doc)
+                # print(f"Query : {qry}")
+                process_queries(faiss_index, qry)
+                # queries = []
+                # for fl in query_doc:
+                #     qr = load_queries(fl)
+                #     queries.extend(qr)
+                # process_queries(faiss_index, qr)
+    
+    else:
+        main()
